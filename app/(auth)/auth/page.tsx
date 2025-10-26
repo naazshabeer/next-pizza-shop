@@ -1,16 +1,118 @@
 'use client';
 
-import React from 'react'
-import { useState } from 'react';
+import { useState, useEffect, FormEvent, Suspense } from 'react';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ChevronLeft, Loader2 } from 'lucide-react';
+import { getSignupFormData, handleSignupSubmit } from '@/actions/auth/signup';
+import { getLoginFormData, handleLoginSubmit } from '@/actions/auth/login';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { toast } from 'sonner';
+import { IAttributes } from 'oneentry/dist/base/utils';
 
-export default function AuthPage() {
-    const [isSignUp, setIsSignUp] = useState(true);
+interface SignUpFormData {
+  email: string;
+  password: string;
+  name: string;
+}
 
-    const toggleForm = () => {
-        setIsSignUp(!isSignUp);
-    };
+interface LoginFormData {
+  email: string;
+  password: string;
+}
+
+function AuthForm() {
+  const [isSignUp, setIsSignUp] = useState(true);
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [formData, setFormData] = useState<IAttributes[]>([]);
+  const [inputValues, setInputValues] = useState<
+    Partial<SignUpFormData & LoginFormData>
+  >({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>('Not valid');
+
+  useEffect(() => {
+    const type = searchParams.get('type');
+    setIsSignUp(type !== 'login');
+  }, [searchParams]);
+
+  useEffect(() => {
+    setIsLoading(true);
+    setError(null);
+    const fetchData = isSignUp ? getSignupFormData : getLoginFormData;
+    fetchData()
+      .then((data) => setFormData(data))
+      .catch((err) => setError(`Failed to fetch form data: ${err}`))
+      .finally(() => setIsLoading(false));
+  }, [isSignUp]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setInputValues((prevValues) => ({ ...prevValues, [name]: value }));
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError(null);
+
+  try {
+      if (isSignUp) {
+        console.log('Submitting Sign Up Form:', inputValues);
+
+        if (inputValues.email && inputValues.password && inputValues.name) {
+          const response = await handleSignupSubmit(
+            inputValues as SignUpFormData
+          );
+
+          if ('identifier' in response) {
+            setInputValues({});
+            setIsSignUp(false);
+            toast('User has been created', {
+              description: 'Please enter your credentials to log in.',
+              duration: 5000,
+            });
+          } else {
+            setError(response.message);
+          }
+        } else {
+          setError('Please fill out all required fields.');
+        }
+      } else {
+        if (inputValues.email && inputValues.password) {
+          const response = await handleLoginSubmit(
+            inputValues as LoginFormData
+          );
+          if (response.message) {
+            setError(response.message);
+          }
+        } else {
+          setError('Please fill out all required fields.');
+        }
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'An error occurred. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+   // Toggles between signup and login forms.
+  const toggleForm = () => {
+    setIsSignUp(!isSignUp);
+    setError(null);
+    setInputValues({});
+  };
+
   return (
     <div className='min-h-screen bg-gradient-to-br from-red-50/30 via-orange-50/20 to-yellow-50/30
     dark:from-red-950/10 dark:via-orange-950/10 dark:to-yellow-950/10'>
@@ -56,16 +158,79 @@ export default function AuthPage() {
                 </p>
             </div>
 
+            {/* Form and loading */}
+
+          {isLoading ? (
+            <div className='flex flex-col justify-center items-center h-48 xs:h-56 sm:h-64 space-y-3 xs:space-y-4'>
+              <div className='w-12 h-12 xs:w-14 xs:h-14 sm:w-16 sm:h-16 rounded-xl xs:rounded-2xl bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 flex items-center justify-center'>
+                <Loader2 className='h-6 w-6 xs:h-7 xs:w-7 sm:h-8 sm:w-8 animate-spin text-white' />
+              </div>
+              <p className='text-base xs:text-lg font-semibold bg-gradient-to-r from-red-600 via-orange-500 to-yellow-500 bg-clip-text text-transparent text-center'>
+                Loading delicious form...
+              </p>
+            </div>
+          ) : (
+            <form
+              className='space-y-4 xs:space-y-5 sm:space-y-6'
+              onSubmit={handleSubmit}
+            >
+              {formData.map((field) => (
+                <div key={field.marker} className='space-y-1.5 xs:space-y-2'>
+                  <Label
+                    htmlFor={field.marker}
+                    className='text-base xs:text-lg font-semibold text-gray-700 dark:text-gray-300'
+                  >
+                    {field.localizeInfos.title}
+                  </Label>
+                  <Input
+                    id={field.marker}
+                    type={field.marker === 'password' ? 'password' : 'text'}
+                    name={field.marker}
+                    className='h-12 xs:h-13 sm:h-14 text-base xs:text-lg rounded-xl xs:rounded-2xl border-2 border-orange-200 dark:border-orange-700 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm hover:border-orange-300 dark:hover:border-orange-600 focus:border-orange-500 dark:focus:border-orange-400 transition-all duration-200 shadow-sm'
+                    placeholder={field.localizeInfos.title}
+                    value={
+                      inputValues[
+                        field.marker as keyof (SignUpFormData & LoginFormData)
+                      ] || ''
+                    }
+                    onChange={handleInputChange}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              ))}
+
+              {error && (
+                <div className='p-3 xs:p-4 rounded-xl xs:rounded-2xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'>
+                  <p className='text-red-600 dark:text-red-400 text-center font-medium text-sm xs:text-base'>
+                    {error}
+                  </p>
+                </div>
+              )}
+
             <div className='pt-1 xs:pt-2' >
               <Button
                 type='submit'
                 className='w-full h-12 xs:h-13 sm:h-14 bg-gradient-to-r from-red-500 via-orange-500 to-yellow-500 hover:from-red-600 hover:via-orange-600
                  hover:to-yellow-600 text-white text-base xs:text-lg sm:text-xl font-bold rounded-xl xs:rounded-2xl shadow-lg hover:shadow-xl transition-all 
                  duration-200 hover:scale-[1.02] active:scale-[0.98] border-0 cursor-pointer'
+                 disabled={isSubmitting}
               >
-                {isSignUp ? 'Sign In 👋' : 'Welcome Back 🍕'}
+                {isSubmitting ? (
+                    <div className='flex items-center space-x-2'>
+                      <Loader2 className='h-5 w-5 xs:h-6 xs:w-6 animate-spin' />
+                      <span className='text-sm xs:text-base sm:text-lg'>
+                        {isSignUp ? 'Creating Account...' : 'Signing In...'}
+                      </span>
+                    </div>
+                ) : isSignUp ? (
+                  'Join PizzaShop 👋' 
+                  ) : ( 
+                  'Welcome Back 🍕'
+                )}
               </Button>
             </div>  
+            </form>
+            )}
 
 
          {/* Toggle form */}
@@ -86,5 +251,14 @@ export default function AuthPage() {
         </div>
       </div>
     </div>
-  )
+  );
+}
+
+
+export default function Component() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <AuthForm />
+    </Suspense>
+  );
 }
